@@ -1,13 +1,13 @@
 FOLDERS, IDS, RESTS, = glob_wildcards("{dir, (\w*\/)?}{id, [^_]+}_{rest, \w*_R2_\w*|\w*2}.fastq")
 DATABASE = "Greengene-13-5-99.fasta"
-CDHIT = "cd-hit-v4.6.8-2017-0621"
+CDHIT = "/home/manager/Folder_shared/cd-hit-v4.6.8-2017-0621"
 INPUT_FOLDER = "/home/manager/test_reads"
 TRIMMOMATIC = "trimmomatic-0.32.jar"
 SIMILARITY_CUTOFF = 0.97
-p = 200
-q = 180
+p = 170
+q = 100
 THREADS = 4
-MINLEN = 100
+MINLEN = 80
 
 rule all:
     input:
@@ -19,7 +19,6 @@ rule prepare:
         "sample1",
         "sample2",
         "SAMPLE_FILE",
-        expand("{id}", id=IDS),
         expand("{id}/{id}_1.fastq", id=IDS),
         expand("{id}/{id}_2.fastq", id=IDS)
     run:
@@ -89,26 +88,26 @@ rule qc:
     input:
         "SAMPLE_FILE",
         R1="{id}/{id}_1.fastq",
-        R2="{id}/{id}_2.fastq",
+        R2="{id}/{id}_2.fastq"        
+    params:
         sample="{id}"
     output:
         R1_fq="{id}/qc/R1.fq",
         R2_fq="{id}/qc/R2.fq"
     shell:
         """
-        java -jar {TRIMMOMATIC} PE -threads {THREADS} -phred33 {input.R1} {input.R2} {INPUT_FOLDER}/{input.sample}/qc/R1.fq \
-        {INPUT_FOLDER}/{input.sample}/qc/R1-s.fq {INPUT_FOLDER}/{input.sample}/qc/R2.fq {INPUT_FOLDER}/{input.sample}/qc/R2-s.fq \
+        java -jar {TRIMMOMATIC} PE -threads {THREADS} -phred33 {input.R1} {input.R2} {INPUT_FOLDER}/{params.sample}/qc/R1.fq \
+        {INPUT_FOLDER}/{params.sample}/qc/R1-s.fq {INPUT_FOLDER}/{params.sample}/qc/R2.fq {INPUT_FOLDER}/{params.sample}/qc/R2-s.fq \
         SLIDINGWINDOW:4:20 LEADING:3 TRAILING:3 MINLEN:{MINLEN} MAXINFO:80:0.5 \
-        1>{INPUT_FOLDER}/{input.sample}/qc/qc.stdout 2>{INPUT_FOLDER}/{input.sample}/qc/qc.stderr
-        rm -f {input.sample}/qc/R1-s.fq {input.sample}/qc/R2-s.fq
+        1>{INPUT_FOLDER}/{params.sample}/qc/qc.stdout 2>{INPUT_FOLDER}/{params.sample}/qc/qc.stderr
+        rm -f {params.sample}/qc/R1-s.fq {params.sample}/qc/R2-s.fq
         """
 
 
 rule fasta_from_fastq:
     input:
         "{id}/qc/R1.fq",
-        "{id}/qc/R2.fq",
-        "{id}"
+        "{id}/qc/R2.fq"
     output:
         "{id}/qc/R1.fa",
         "{id}/qc/R2.fa"
@@ -122,57 +121,60 @@ rule fasta_from_fastq:
                 for line in fq:
                     count += 1
                     if count % 4 == 1:
-                        fa.write(">Sample|" + input[2] + "|" + str(count // 4 + 1) + " " + line)
+                        fa.write(">Sample|" + input[0].split("/")[0] + "|" + str(count // 4 + 1) + " " + line)
                     elif count % 4 == 2:
                         fa.write(line)
 
 
 rule seq_nr:
     input:
-        sample="{id}",
         R1_fa="{id}/qc/R1.fa",
         R2_fa="{id}/qc/R2.fa"
+    params:
+        sample="{id}"
     output:
         "{id}/otu/seq.nr",
         "{id}/otu/seq.nr.2",
         "{id}/otu/seq.nr.clstr"
     shell:
         """
-        {CDHIT}/cd-hit-est -i {input.sample}/qc/R1.fa -j {input.sample}/qc/R2.fa -o {input.sample}/otu/seq.nr \
-        -op {input.sample}/otu/seq.nr.2 -sf 1 -sc 1 -P 1 -r 0 -cx {p} -cy {q} -c 1.0  -n 10 -G 1 -b 1  -T 1 -M 8000 \
-        -d 0 -p 1 > {input.sample}/otu/seq.nr.log
+        {CDHIT}/cd-hit-est -i {params.sample}/qc/R1.fa -j {params.sample}/qc/R2.fa -o {params.sample}/otu/seq.nr \
+        -op {params.sample}/otu/seq.nr.2 -sf 1 -sc 1 -P 1 -r 0 -cx {p} -cy {q} -c 1.0  -n 10 -G 1 -b 1  -T 1 -M 8000 \
+        -d 0 -p 1 > {params.sample}/otu/seq.nr.log
         """
 
 
 rule chimeric_clstr:
     input:
         "{id}/otu/seq.nr",
-        "{id}/otu/seq.nr.2",
+        "{id}/otu/seq.nr.2"
+    params:
         sample="{id}"
     output:
         "{id}/otu/seq.chimeric-clstr.R1",
         "{id}/otu/seq.chimeric-clstr.R2"
     shell:
         """
-        {CDHIT}/cd-hit-est -i {input.sample}/otu/seq.nr   -o {input.sample}/otu/seq.chimeric-clstr.R1 -r 0 -cx 75 \
-         -c 0.99 -n 10 -G 0 -b 1 -A 50 -T 1 -M 8000  -d 0 -p 1 > {input.sample}/otu/seq.chimeric-clstr.R1.log
-        {CDHIT}/cd-hit-est -i {input.sample}/otu/seq.nr.2 -o {input.sample}/otu/seq.chimeric-clstr.R2 -r 0 -cx 75 \
-        -c 0.99 -n 10 -G 0 -b 1 -A 50 -T 1 -M 8000  -d 0 -p 1 > {input.sample}/otu/seq.chimeric-clstr.R2.log
+        {CDHIT}/cd-hit-est -i {params.sample}/otu/seq.nr   -o {params.sample}/otu/seq.chimeric-clstr.R1 -r 0 -cx 75 \
+         -c 0.99 -n 10 -G 0 -b 1 -A 50 -T 1 -M 8000  -d 0 -p 1 > {params.sample}/otu/seq.chimeric-clstr.R1.log
+        {CDHIT}/cd-hit-est -i {params.sample}/otu/seq.nr.2 -o {params.sample}/otu/seq.chimeric-clstr.R2 -r 0 -cx 75 \
+        -c 0.99 -n 10 -G 0 -b 1 -A 50 -T 1 -M 8000  -d 0 -p 1 > {params.sample}/otu/seq.chimeric-clstr.R2.log
         """
 
 
 rule seq_99:
     input:
         "{id}/otu/seq.nr",
-        "{id}/otu/seq.nr.2",
+        "{id}/otu/seq.nr.2"
+    params:
         sample="{id}"
     output:
         "{id}/otu/seq.99",
         "{id}/otu/seq.99.2"
     shell:
-        "{CDHIT}/cd-hit-est -i {input.sample}/otu/seq.nr -j {input.sample}/otu/seq.nr.2 -o {input.sample}/otu/seq.99 \
-        -op {input.sample}/otu/seq.99.2 -P 1 -r 0 -cx {p} -cy {q} -c 0.99 -n 10 -G 1 -b 1  -T 1 -M 8000  -d 0 -p 1 \
-        > {input.sample}/otu/seq.99.log"
+        "{CDHIT}/cd-hit-est -i {params.sample}/otu/seq.nr -j {params.sample}/otu/seq.nr.2 -o {params.sample}/otu/seq.99 \
+        -op {params.sample}/otu/seq.99.2 -P 1 -r 0 -cx {p} -cy {q} -c 0.99 -n 10 -G 1 -b 1  -T 1 -M 8000  -d 0 -p 1 \
+        > {params.sample}/otu/seq.99.log"
 
 
 rule seq_99f:
@@ -180,88 +182,95 @@ rule seq_99f:
         "{id}/otu/seq.99",
         "{id}/otu/seq.99.2",
         "{id}/otu/seq.chimeric-clstr.R1",
-        "{id}/otu/seq.chimeric-clstr.R2",
+        "{id}/otu/seq.chimeric-clstr.R2"
+    params:
         sample="{id}"
     output:
         "{id}/otu/seq.99f",
         "{id}/otu/seq.99f.2"
     shell:
-        "{CDHIT}/usecases/Miseq-16S/filter-chimeric-and-small.pl -c 0.0001 -k {input.sample}/otu/seq.nr.clstr \
-        -i {input.sample}/otu/seq.chimeric-clstr.R1.clstr -j {input.sample}/otu/seq.chimeric-clstr.R2.clstr \
-        -a {input.sample}/otu/seq.99.clstr -f {input.sample}/otu/seq.99 -g {input.sample}/otu/seq.99.2 -o {input.sample}/otu/seq.99f"
+        "{CDHIT}/usecases/Miseq-16S/filter-chimeric-and-small.pl -c 0.0001 -k {params.sample}/otu/seq.nr.clstr \
+        -i {params.sample}/otu/seq.chimeric-clstr.R1.clstr -j {params.sample}/otu/seq.chimeric-clstr.R2.clstr \
+        -a {params.sample}/otu/seq.99.clstr -f {params.sample}/otu/seq.99 -g {params.sample}/otu/seq.99.2 -o {params.sample}/otu/seq.99f"
 
 
 rule seq_99f_all:
     input:
         "{id}/otu/seq.nr",
-        "{id}/otu/seq.99f",
+        "{id}/otu/seq.99f"
+    params:
         sample="{id}"
     output:
         "{id}/otu/seq.99f-all.clstr"
     shell:
-        "{CDHIT}/clstr_rev.pl {input.sample}/otu/seq.nr.clstr {input.sample}/otu/seq.99f.clstr > {input.sample}/otu/seq.99f-all.clstr"
+        "{CDHIT}/clstr_rev.pl {params.sample}/otu/seq.nr.clstr {params.sample}/otu/seq.99f.clstr > {params.sample}/otu/seq.99f-all.clstr"
 
 rule seq_97:
     input:
-        "{id}/otu/seq.99f",
+        "{id}/otu/seq.99f"
+    params:
         sample="{id}"
     output:
         "{id}/otu/seq.97"
     shell:
-        "{CDHIT}/cd-hit-est -i {input.sample}/otu/seq.99f -j {input.sample}/otu/seq.99f.2 -o {input.sample}/otu/seq.97 \
-        -op {input.sample}/otu/seq.97.2 -P 1 -r 0 -cx {p} -cy {q} -c {SIMILARITY_CUTOFF} -n 10 -G 1 -b 10  -T 1 -M 8000  -d 0 -p 1 > \
-        {input.sample}/otu/seq.97.log"
+        "{CDHIT}/cd-hit-est -i {params.sample}/otu/seq.99f -j {params.sample}/otu/seq.99f.2 -o {params.sample}/otu/seq.97 \
+        -op {params.sample}/otu/seq.97.2 -P 1 -r 0 -cx {p} -cy {q} -c {SIMILARITY_CUTOFF} -n 10 -G 1 -b 10  -T 1 -M 8000  -d 0 -p 1 > \
+        {params.sample}/otu/seq.97.log"
 
 
 rule seq_97_ref:
     input:
         "{id}/otu/seq.97",
         db1="spliced_db-R1",
-        db2="spliced_db-R2",
+        db2="spliced_db-R2"
+    params:
         sample="{id}"
     output:
         "{id}/otu/seq.97.ref"
     shell:
-        "{CDHIT}/cd-hit-est-2d -i {input.sample}/otu/seq.97 -j {input.sample}/otu/seq.97.2 -i2 {INPUT_FOLDER}/{input.db1} \
-        -j2 {INPUT_FOLDER}/{input.db2} -o {input.sample}/otu/seq.97.ref -op {input.sample}/otu/seq.97.ref.2 -P 1 -r 0 \
-        -cx {p} -cy {q} -c {SIMILARITY_CUTOFF} -n 10 -G 1 -b 10  -T 1 -M 8000  -d 0 -p 1 > {input.sample}/otu/seq.97.ref.log"
+        "{CDHIT}/cd-hit-est-2d -i {params.sample}/otu/seq.97 -j {params.sample}/otu/seq.97.2 -i2 {INPUT_FOLDER}/{input.db1} \
+        -j2 {INPUT_FOLDER}/{input.db2} -o {params.sample}/otu/seq.97.ref -op {params.sample}/otu/seq.97.ref.2 -P 1 -r 0 \
+        -cx {p} -cy {q} -c {SIMILARITY_CUTOFF} -n 10 -G 1 -b 10  -T 1 -M 8000  -d 0 -p 1 > {params.sample}/otu/seq.97.ref.log"
 
 
 rule seq_97_all:
     input:
         "{id}/otu/seq.99f-all.clstr",
-        "{id}/otu/seq.97",
+        "{id}/otu/seq.97"
+    params:
         sample="{id}"
     output:
         "{id}/otu/seq.97-all.clstr"
     shell:
-        "{CDHIT}/clstr_rev.pl {input.sample}/otu/seq.99f-all.clstr {input.sample}/otu/seq.97.clstr > {input.sample}/otu/seq.97-all.clstr"
+        "{CDHIT}/clstr_rev.pl {params.sample}/otu/seq.99f-all.clstr {params.sample}/otu/seq.97.clstr > {params.sample}/otu/seq.97-all.clstr"
 
 
 rule seq_97_reftop:
     input:
-        "{id}/otu/seq.97.ref",
+        "{id}/otu/seq.97.ref"
+    params:
         sample="{id}"
     output:
         "{id}/otu/seq.97.reftop.clstr"
     shell:
-        "{CDHIT}/usecases/Miseq-16S/filter-nontop-ref.pl < {input.sample}/otu/seq.97.ref.clstr > {input.sample}/otu/seq.97.reftop.clstr"
+        "{CDHIT}/usecases/Miseq-16S/filter-nontop-ref.pl < {params.sample}/otu/seq.97.ref.clstr > {params.sample}/otu/seq.97.reftop.clstr"
 
 
 rule OTU_all:
     input:
         "{id}/otu/seq.97-all.clstr",
-        "{id}/otu/seq.97.reftop.clstr",
+        "{id}/otu/seq.97.reftop.clstr"
+    params:
         sample="{id}"
     output:
         "{id}/otu/OTU.clstr"
     shell:
         """
-        {CDHIT}/clstr_merge.pl {input.sample}/otu/seq.97-all.clstr {input.sample}/otu/seq.97.reftop.clstr > {input.sample}/otu/OTU.clstr
-        rm -f {input.sample}/otu/seq.chimeric-clstr.R1 {input.sample}/otu/seq.chimeric-clstr.R1.log \
-        {input.sample}/otu/seq.chimeric-clstr.R2 {input.sample}/otu/seq.chimeric-clstr.R2.log
-        rm -f {input.sample}/otu/seq.97.ref {input.sample}/otu/seq.97.ref.2 {input.sample}/otu/seq.97.ref.log
-        mv {input.sample}/otu/seq.99f.log {input.sample}/otu/chimeric-small-clusters-list.txt
+        {CDHIT}/clstr_merge.pl {params.sample}/otu/seq.97-all.clstr {params.sample}/otu/seq.97.reftop.clstr > {params.sample}/otu/OTU.clstr
+        rm -f {params.sample}/otu/seq.chimeric-clstr.R1 {params.sample}/otu/seq.chimeric-clstr.R1.log \
+        {params.sample}/otu/seq.chimeric-clstr.R2 {params.sample}/otu/seq.chimeric-clstr.R2.log
+        rm -f {params.sample}/otu/seq.97.ref {params.sample}/otu/seq.97.ref.2 {params.sample}/otu/seq.97.ref.log
+        mv {params.sample}/otu/seq.99f.log {params.sample}/otu/chimeric-small-clusters-list.txt
         """
 
 
@@ -269,14 +278,17 @@ rule pooling:
     input:
         expand("{id}/otu/OTU.clstr", id=IDS)
     output:
-        "pooled"
+        "pooled/SAMPLE_FILE"
     shell:
-        "{CDHIT}/usecases/Miseq-16S/pool_samples.pl -s SAMPLE_FILE -o pooled"
+        """
+        {CDHIT}/usecases/Miseq-16S/pool_samples.pl -s SAMPLE_FILE -o pooled
+        cp SAMPLE_FILE pooled
+        """
 
 
 rule pooled_seq_97:
     input:
-        "pooled"
+        "pooled/SAMPLE_FILE"
     output:
         "pooled/seq.97"
     shell:
